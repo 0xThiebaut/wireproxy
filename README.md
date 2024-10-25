@@ -95,12 +95,18 @@ BindAddress = 127.0.0.1:25565
 Target = play.cubecraft.net:25565
 
 # TCPServerTunnel is a tunnel listening on wireguard,
-# and it forwards any TCP traffic received to the specified target via local network.
+# and it forwards any TCP traffic received to the specified target via local network. 
 # Flow:
 # <an app on your wireguard network> --(wireguard)--> 172.16.31.2:3422 --> localhost:25545
 [TCPServerTunnel]
 ListenPort = 3422
 Target = localhost:25545
+
+# If the listen and target ports are 0, NAT-PMP is used against the DNS server to dynamically request a port.
+# The /nat-pnp health endpoint will expose the dynamically mapped port. 
+[TCPServerTunnel]
+ListenPort = 0
+Target = torrent-client:0
 
 # STDIOTunnel is a tunnel connecting the standard input and output of the wireproxy
 # process to the specified TCP target via wireguard.
@@ -202,6 +208,8 @@ Currently two endpoints are implemented:
 `/metrics`: Exposes information of the wireguard daemon, this provides the same information you would get with `wg show`. [This](https://www.wireguard.com/xplatform/#example-dialog) shows an example of what the response would look like.
 
 `/readyz`: This responds with a json which shows the last time a pong is received from an IP specified with `CheckAlive`. When `CheckAlive` is set, a ping is sent out to addresses in `CheckAlive` per `CheckAliveInterval` seconds (defaults to 5) via wireguard. If a pong has not been received from one of the addresses within the last `CheckAliveInterval` seconds (+2 seconds for some leeway to account for latency), then it would respond with a 503, otherwise a 200.
+
+`/nat-pmp`: Exposes information on the NAT-PNP dynamic port mappings. This is typically used to establish port forwarding for torrent clients.
 
 For example:
 ```

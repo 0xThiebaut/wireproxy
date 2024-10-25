@@ -12,7 +12,8 @@ on:
         description: Tag for container
         default: "latest"
         required: true
-
+      container_name:
+        description: Name for container
 permissions:
   packages: write
 
@@ -21,7 +22,7 @@ jobs:
     runs-on: ubuntu-20.04
 
     env:
-      CONTAINER_NAME: ghcr.io/${{ github.repository }}
+      CONTAINER_NAME: ghcr.io/${{ github.event.inputs.container_name || github.repository }}
       BUILD_PLATFORMS: linux/amd64,linux/arm,linux/arm64,linux/ppc64le,linux/s390x
       RAW_CONTAINER_TAG: ${{ github.event.inputs.container_tag || github.event.pull_request.head.ref || 'latest' }}
       RAW_REF_NAME: ${{ github.event.pull_request.head.ref || github.ref }}
@@ -69,4 +70,5 @@ jobs:
             --label "org.opencontainers.image.created=$(date -u --rfc-3339=seconds)" \
             --cache-from type=gha \
             --cache-to type=gha,mode=max \
+            --push \
             --pull ${{ github.event_name == 'push' && '--push' || '' }} .

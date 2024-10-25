@@ -8,6 +8,7 @@ require (
 	github.com/MakeNowJust/heredoc/v2 v2.0.1
 	github.com/akamensky/argparse v1.4.0
 	github.com/go-ini/ini v1.67.0
+	github.com/jackpal/go-nat-pmp v1.0.2
 	github.com/landlock-lsm/go-landlock v0.0.0-20240216195629-efb66220540a
 	github.com/sourcegraph/conc v0.3.0
 	github.com/things-go/go-socks5 v0.0.5

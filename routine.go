@@ -8,6 +8,7 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"errors"
+	natpmp "github.com/jackpal/go-nat-pmp"
 	"golang.org/x/net/icmp"
 	"golang.org/x/net/ipv4"
 	"golang.org/x/net/ipv6"
@@ -49,6 +50,7 @@ type VirtualTun struct {
 	Conf      *DeviceConfig
 	// PingRecord stores the last time an IP was pinged
 	PingRecord map[string]uint64
+	NatPnP     map[string]string
 }
 
 // RoutineSpawner spawns a routine (e.g. socks5, tcp static routes) after the configuration is parsed
@@ -59,6 +61,10 @@ type RoutineSpawner interface {
 type addressPort struct {
 	address string
 	port    uint16
+}
+
+func (a addressPort) String() string {
+	return a.address + ":" + strconv.Itoa(int(a.port))
 }
 
 // LookupAddr lookups a hostname.
@@ -325,9 +331,36 @@ func tcpServerForward(vt *VirtualTun, raddr *addressPort, conn net.Conn) {
 	}()
 }
 
+// parseIPv4 converts an IPv4 from its [4]byte array notation into the equivalent net.IP slice.
+func parseIPv4(array [4]byte) (res net.IP) {
+	for _, b := range array {
+		res = append(res, b)
+	}
+	return res
+}
+
+func (conf *TCPServerTunnelConfig) natPMP(vt *VirtualTun, lport uint16, rport uint16) (*addressPort, error) {
+	forward := natpmp.NewClient(vt.Conf.DNS[0].AsSlice())
+
+	addr, err := forward.GetExternalAddress()
+	if err != nil {
+		return nil, err
+	}
+
+	mapping, err := forward.AddPortMapping("tcp", int(lport), int(rport), 60)
+	if err != nil {
+		return nil, err
+	}
+
+	return &addressPort{
+		address: parseIPv4(addr.ExternalIPAddress).String(),
+		port:    mapping.MappedExternalPort,
+	}, nil
+}
+
 // SpawnRoutine spawns a TCP server on wireguard which acts as a proxy to the specified target
 func (conf *TCPServerTunnelConfig) SpawnRoutine(vt *VirtualTun) {
-	raddr, err := parseAddressPort(conf.Target)
+	taddr, err := parseAddressPort(conf.Target)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -338,12 +371,43 @@ func (conf *TCPServerTunnelConfig) SpawnRoutine(vt *VirtualTun) {
 		log.Fatal(err)
 	}
 
+	// Enable NAT-PMP if listening and targeting port 0
+	if conf.ListenPort == 0 && taddr.port == 0 && len(vt.Conf.DNS) > 0 {
+		laddr, err := parseAddressPort(server.Addr().String())
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		mapping, err := conf.natPMP(vt, laddr.port, laddr.port)
+		if err != nil {
+			log.Fatal(err)
+		}
+		taddr.port = mapping.port
+
+		go func() {
+			ticker := time.NewTicker(45 * time.Second)
+			for {
+				<-ticker.C
+				renew, rerr := conf.natPMP(vt, laddr.port, mapping.port)
+				if rerr != nil {
+					log.Fatal(rerr)
+				}
+				if renew.address != mapping.address || renew.port != mapping.port {
+					taddr.port = renew.port
+					vt.NatPnP[renew.String()] = taddr.String()
+					delete(vt.NatPnP, mapping.String())
+				}
+				mapping = renew
+			}
+		}()
+	}
+
 	for {
 		conn, err := server.Accept()
 		if err != nil {
 			log.Fatal(err)
 		}
-		go tcpServerForward(vt, raddr, conn)
+		go tcpServerForward(vt, taddr, conn)
 	}
 }
 
@@ -396,6 +460,11 @@ func (d VirtualTun) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write(buf.Bytes())
+	case "/nat-pmp":
+		e := json.NewEncoder(w)
+		if err := e.Encode(d.NatPnP); err != nil {
+			errorLogger.Printf("Failed to encode device NAT-PMP: %s\n", err.Error())
+		}
 	default:
 		w.WriteHeader(http.StatusNotFound)
 	}

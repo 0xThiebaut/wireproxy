@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -32,7 +33,7 @@ func (s *HTTPServer) authenticate(req *http.Request) (int, error) {
 
 	auth := req.Header.Get(proxyAuthHeaderKey)
 	if auth == "" {
-		return http.StatusProxyAuthRequired, fmt.Errorf(http.StatusText(http.StatusProxyAuthRequired))
+		return http.StatusProxyAuthRequired, errors.New(http.StatusText(http.StatusProxyAuthRequired))
 	}
 
 	enc := strings.TrimPrefix(auth, "Basic ")
